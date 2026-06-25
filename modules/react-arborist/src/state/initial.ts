@@ -13,7 +13,11 @@ export const initialState = (props?: TreeProps<any>): RootState => ({
       destinationParentId: null,
       destinationIndex: null,
     },
-    selection: { ids: new Set(), anchor: null, mostRecent: null },
+    selection: {
+      ids: new Set(props?.selectedIds ?? []),
+      anchor: null,
+      mostRecent: null,
+    },
   },
   dnd: {
     cursor: { type: "none" },

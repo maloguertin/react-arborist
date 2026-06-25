@@ -55,12 +55,21 @@ export interface TreeProps<T> {
   /* Event Handlers */
   onActivate?: (node: NodeApi<T>) => void;
   onSelect?: (nodes: NodeApi<T>[]) => void;
+  onSelectionChange?: (nodes: NodeApi<T>[]) => void;
   onScroll?: (props: ListOnScrollProps) => void;
   onToggle?: (id: string) => void;
   onFocus?: (node: NodeApi<T>) => void;
 
   /* Selection */
   selection?: string;
+
+  /* Controlled selection. When provided, the tree owns no selection state of
+     its own: the set of selected nodes is driven entirely by this prop, and
+     internal interactions (click, keyboard, drag) emit `onSelectionChange`
+     with the intended next selection instead of mutating it. Mirrors a
+     controlled `<input value onChange>`; omit `onSelectionChange` to freeze
+     the selection read-only. Takes precedence over `selection`. */
+  selectedIds?: readonly string[];
 
   /* Open State */
   initialOpenState?: OpenMap;

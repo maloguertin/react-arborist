@@ -61,6 +61,48 @@ test("Ctrl+Click falls through to a plain select when multi-select is disabled (
   expect(b.getAttribute("aria-selected")).toBe("true");
 });
 
+/* Controlled selection: the `selectedIds` prop fully drives which rows are
+   selected. An internal click reports the intended next selection through
+   onSelectionChange but must NOT change the rendered selection until the
+   parent feeds the new value back through the prop. */
+test("controlled selectedIds drives selection; a click emits but does not self-apply", async () => {
+  const onSelectionChange = jest.fn();
+  const lastIds = () => onSelectionChange.mock.calls.at(-1)![0].map((n: { id: string }) => n.id);
+  const { rerender } = render(
+    <Tree<Datum>
+      data={data}
+      openByDefault
+      selectedIds={["2"]}
+      onSelectionChange={onSelectionChange}
+    />,
+  );
+  const [, a, b] = screen.getAllByRole("treeitem");
+  // The prop paints the selection at first render (seeded, no flash).
+  expect(a.getAttribute("aria-selected")).toBe("true");
+  expect(b.getAttribute("aria-selected")).toBe("false");
+
+  // Clicking another row emits the intended next selection...
+  await click(b);
+  expect(lastIds()).toEqual(["3"]);
+  // ...but the rendered selection stays put until the parent updates the prop.
+  expect(a.getAttribute("aria-selected")).toBe("true");
+  expect(b.getAttribute("aria-selected")).toBe("false");
+
+  // Parent applies the change → selection follows the prop.
+  await act(async () => {
+    rerender(
+      <Tree<Datum>
+        data={data}
+        openByDefault
+        selectedIds={["3"]}
+        onSelectionChange={onSelectionChange}
+      />,
+    );
+  });
+  expect(a.getAttribute("aria-selected")).toBe("false");
+  expect(b.getAttribute("aria-selected")).toBe("true");
+});
+
 /* #10: a row's background/selection highlight must span the full scrollable
    width, not stop at the viewport edge, when content overflows horizontally. */
 test("rows get min-width: max-content so the highlight spans overflow (#10)", () => {

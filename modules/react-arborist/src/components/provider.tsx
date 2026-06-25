@@ -55,8 +55,17 @@ export function TreeProvider<T>({ treeProps, imperativeHandle, children }: Props
   /* Expose the tree api */
   useImperativeHandle(imperativeHandle, () => api);
 
-  /* Change selection based on props */
+  /* Controlled selection: mirror the `selectedIds` prop into the store. This
+     takes precedence over the legacy single-id `selection` prop. */
   useEffect(() => {
+    if (api.props.selectedIds === undefined) return;
+    api.applyControlledSelection(api.props.selectedIds);
+  }, [api.props.selectedIds]);
+
+  /* Legacy single-id `selection` prop (uncontrolled). Skipped when the
+     controlled `selectedIds` prop is in use. */
+  useEffect(() => {
+    if (api.props.selectedIds !== undefined) return;
     if (api.props.selection) {
       api.select(api.props.selection, { focus: false });
     } else {

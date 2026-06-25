@@ -178,6 +178,36 @@ function App() {
 }
 ```
 
+### Fully Controlled Selection
+
+For complete control over the selection — including multiple nodes — pass the
+selected ids to the `selectedIds` prop and handle `onSelectionChange`. This
+works just like a controlled `<input value onChange>`: the prop is the single
+source of truth, and internal interactions (click, Cmd/Ctrl+click, Shift+click,
+Cmd/Ctrl+A, keyboard) don't change the selection themselves — they call
+`onSelectionChange` with the _intended_ next selection and wait for you to feed
+it back through `selectedIds`.
+
+```jsx
+function App() {
+  const [selectedIds, setSelectedIds] = useState([]);
+
+  return (
+    <Tree
+      initialData={data}
+      selectedIds={selectedIds}
+      onSelectionChange={(nodes) => setSelectedIds(nodes.map((n) => n.id))}
+    />
+  );
+}
+```
+
+`onSelectionChange` fires only for changes that originate _inside_ the tree;
+updating `selectedIds` from your own code does not echo back through it. Omit
+`onSelectionChange` to make the selection read-only. `selectedIds` takes
+precedence over the single-id `selection` prop, and `onSelect` keeps firing
+alongside `onSelectionChange` in both controlled and uncontrolled modes.
+
 ### Use the Tree Api Instance
 
 You can access the Tree Api in the parent component by giving a ref to the tree.
@@ -327,12 +357,14 @@ interface TreeProps<T> {
   /* Event Handlers */
   onActivate?: (node: NodeApi<T>) => void;
   onSelect?: (nodes: NodeApi<T>[]) => void;
+  onSelectionChange?: (nodes: NodeApi<T>[]) => void;
   onScroll?: (props: ListOnScrollProps) => void;
   onToggle?: (id: string) => void;
   onFocus?: (node: NodeApi<T>) => void;
 
   /* Selection */
   selection?: string;
+  selectedIds?: readonly string[];
 
   /* Open State */
   initialOpenState?: OpenMap;

@@ -369,8 +369,20 @@ export class TreeApi<T> {
   }
 
   get selectedNodes() {
-    let nodes = [];
-    for (let id of Array.from(this.selectedIds)) {
+    return this.nodesFromIds(this.selectedIds);
+  }
+
+  /* True when the parent drives the selection set via the `selectedIds` prop.
+     In that mode internal interactions emit the intended next selection
+     through onSelect/onSelectionChange but never write `ids` to the store —
+     the store's ids are mirrored from the prop by applyControlledSelection. */
+  get isSelectionControlled() {
+    return this.props.selectedIds !== undefined;
+  }
+
+  private nodesFromIds(ids: Iterable<string>): NodeApi<T>[] {
+    const nodes: NodeApi<T>[] = [];
+    for (const id of Array.from(ids)) {
       const node = this.get(id);
       if (node) nodes.push(node);
     }
@@ -423,11 +435,7 @@ export class TreeApi<T> {
     const id = this.identify(node);
     if (changeFocus) this.dispatch(focus(id));
     if (this.get(id)?.isSelectable) {
-      this.setSelection({
-        ids: [id],
-        anchor: id,
-        mostRecent: id,
-      });
+      this.commitSelection(new Set([id]), id, id);
     }
     this.scrollTo(id, opts.align);
     if (this.focusedNode && changeFocus) {
@@ -438,8 +446,10 @@ export class TreeApi<T> {
   deselect(node: Identity | T) {
     if (!node) return;
     const id = this.identify(node);
-    this.dispatch(selection.remove(id));
-    safeRun(this.props.onSelect, this.selectedNodes);
+    const { ids, anchor, mostRecent } = this.state.nodes.selection;
+    const next = new Set(ids);
+    next.delete(id);
+    this.commitSelection(next, anchor, mostRecent);
   }
 
   selectMulti(identity: Identity | T, opts: { align?: Align; focus?: boolean } = {}) {
@@ -447,49 +457,51 @@ export class TreeApi<T> {
     if (!node) return;
     const changeFocus = opts.focus !== false;
     if (changeFocus) this.dispatch(focus(node.id));
+    const { ids, anchor, mostRecent } = this.state.nodes.selection;
     if (node.isSelectable) {
-      this.dispatch(selection.add(node.id));
-      this.dispatch(selection.anchor(node.id));
-      this.dispatch(selection.mostRecent(node.id));
+      const next = new Set(ids);
+      next.add(node.id);
+      this.commitSelection(next, node.id, node.id);
+    } else {
+      this.commitSelection(new Set(ids), anchor, mostRecent);
     }
     this.scrollTo(node, opts.align);
     if (this.focusedNode && changeFocus) {
       safeRun(this.props.onFocus, this.focusedNode);
     }
-    safeRun(this.props.onSelect, this.selectedNodes);
   }
 
   selectContiguous(identity: Identity | T) {
     if (!identity) return;
     const id = this.identify(identity);
     this.dispatch(focus(id));
+    const { ids, anchor, mostRecent } = this.state.nodes.selection;
     if (this.get(id)?.isSelectable) {
-      const { anchor, mostRecent } = this.state.nodes.selection;
-      const selectableNodes = this.filterSelectableNodes(
-        this.nodesBetween(anchor, this.identifyNull(id)),
+      const next = new Set(ids);
+      this.nodesBetween(anchor, mostRecent).forEach((n) => next.delete(n.id));
+      this.filterSelectableNodes(this.nodesBetween(anchor, this.identifyNull(id))).forEach((n) =>
+        next.add(n.id),
       );
-      this.dispatch(selection.remove(this.nodesBetween(anchor, mostRecent)));
-      this.dispatch(selection.add(selectableNodes));
-      this.dispatch(selection.mostRecent(id));
+      this.commitSelection(next, anchor, id);
+    } else {
+      this.commitSelection(new Set(ids), anchor, mostRecent);
     }
     this.scrollTo(id);
     if (this.focusedNode) safeRun(this.props.onFocus, this.focusedNode);
-    safeRun(this.props.onSelect, this.selectedNodes);
   }
 
   deselectAll() {
-    // setSelection fires onSelect; don't fire it again here (see #332).
-    this.setSelection({ ids: [], anchor: null, mostRecent: null });
+    this.commitSelection(new Set(), null, null);
   }
 
   selectAll() {
     const allSelectableNodes = this.filterSelectableNodes(Object.keys(this.idToIndex));
-    // setSelection fires onSelect; don't fire it again here (see #332).
-    this.setSelection({
-      ids: allSelectableNodes,
-      anchor: allSelectableNodes[0] ?? null,
-      mostRecent: allSelectableNodes[allSelectableNodes.length - 1] ?? null,
-    });
+    const ids = new Set(allSelectableNodes.map((n) => n.id));
+    this.commitSelection(
+      ids,
+      allSelectableNodes[0]?.id ?? null,
+      allSelectableNodes[allSelectableNodes.length - 1]?.id ?? null,
+    );
     this.dispatch(focus(this.lastNode?.id));
     if (this.focusedNode) safeRun(this.props.onFocus, this.focusedNode);
   }
@@ -508,8 +520,43 @@ export class TreeApi<T> {
     const ids = new Set(args.ids?.map((i) => this.identify(i)));
     const anchor = this.identifyNull(args.anchor);
     const mostRecent = this.identifyNull(args.mostRecent);
-    this.dispatch(selection.set({ ids, anchor, mostRecent }));
-    safeRun(this.props.onSelect, this.selectedNodes);
+    this.commitSelection(ids, anchor, mostRecent);
+  }
+
+  /* The single funnel every selection mutation routes through. The ephemeral
+     range cursors (anchor/mostRecent) are always written to the store; the
+     `ids` are written only when uncontrolled. In both modes onSelect and
+     onSelectionChange fire exactly once with the intended next selection (see
+     #332), so a controlled parent receives the change it must apply even
+     though the store's ids stay put until `selectedIds` flows back in. */
+  private commitSelection(ids: Set<string>, anchor: string | null, mostRecent: string | null) {
+    if (this.isSelectionControlled) {
+      this.dispatch(selection.anchor(anchor));
+      this.dispatch(selection.mostRecent(mostRecent));
+    } else {
+      this.dispatch(selection.set({ ids, anchor, mostRecent }));
+    }
+    const nodes = this.nodesFromIds(ids);
+    safeRun(this.props.onSelect, nodes);
+    safeRun(this.props.onSelectionChange, nodes);
+  }
+
+  /* Mirror the controlled `selectedIds` prop into the store without firing any
+     callbacks — externally-driven changes must not echo back through
+     onSelectionChange (which would loop). anchor/mostRecent are preserved when
+     still selected, otherwise cleared. */
+  applyControlledSelection(ids: readonly string[]) {
+    const next = new Set(ids);
+    const current = this.state.nodes.selection.ids;
+    if (next.size === current.size && Array.from(next).every((id) => current.has(id))) return;
+    const { anchor, mostRecent } = this.state.nodes.selection;
+    this.dispatch(
+      selection.set({
+        ids: next,
+        anchor: anchor && next.has(anchor) ? anchor : null,
+        mostRecent: mostRecent && next.has(mostRecent) ? mostRecent : null,
+      }),
+    );
   }
 
   /* Drag and Drop */

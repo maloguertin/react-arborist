@@ -41,9 +41,7 @@ describe("tree.drop() fires onMove (#313)", () => {
     api.dispatch(dnd.dragStart("child", ["child"]));
     api.dispatch(dnd.hovering("folder", null));
     api.drop();
-    expect(onMove).toHaveBeenCalledWith(
-      expect.objectContaining({ parentId: "folder", index: 0 }),
-    );
+    expect(onMove).toHaveBeenCalledWith(expect.objectContaining({ parentId: "folder", index: 0 }));
   });
 });
 
@@ -68,9 +66,7 @@ describe("custom idAccessor is honored when methods receive raw data (#347)", ()
     const onDelete = jest.fn();
     const api = setupApi({ data: uuidData, idAccessor: "uuid", onDelete });
     api.delete(uuidData[0]);
-    expect(onDelete).toHaveBeenCalledWith(
-      expect.objectContaining({ ids: ["a"] }),
-    );
+    expect(onDelete).toHaveBeenCalledWith(expect.objectContaining({ ids: ["a"] }));
   });
 
   test("create() focuses the new node by its accessor-derived id", async () => {
@@ -182,5 +178,77 @@ describe("onSelect fires exactly once per selection method (#332)", () => {
     onSelect.mockClear();
     api.deselect("a");
     expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("controlled selection (selectedIds)", () => {
+  const ids = (nodes: any[]) => nodes.map((n) => n.id);
+
+  test("internal selection emits the intended next set but does not mutate the store", () => {
+    const onSelect = jest.fn();
+    const onSelectionChange = jest.fn();
+    const api = setupApi({ data: rowData, selectedIds: ["a"], onSelect, onSelectionChange });
+    api.applyControlledSelection(["a"]); // provider effect mirrors the prop into the store
+    expect(api.isSelectionControlled).toBe(true);
+
+    onSelect.mockClear();
+    onSelectionChange.mockClear();
+    api.selectMulti("b");
+
+    // Store still reflects the prop, not the interaction.
+    expect(ids(api.selectedNodes)).toEqual(["a"]);
+    // The intended next selection is reported through both callbacks.
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    expect(ids(onSelectionChange.mock.calls[0][0])).toEqual(["a", "b"]);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(ids(onSelect.mock.calls[0][0])).toEqual(["a", "b"]);
+    // Ephemeral range cursors still advance so shift-range keeps working.
+    expect(api.state.nodes.selection.anchor).toBe("b");
+    expect(api.state.nodes.selection.mostRecent).toBe("b");
+  });
+
+  test("shift-range selection emits the whole intended range", () => {
+    const onSelectionChange = jest.fn();
+    const api = setupApi({ data: rowData, selectedIds: ["a"], onSelectionChange });
+    api.applyControlledSelection(["a"]);
+    api.select("a"); // anchor at "a"
+    onSelectionChange.mockClear();
+
+    api.selectContiguous("c");
+
+    expect(ids(onSelectionChange.mock.calls.at(-1)![0]).sort()).toEqual(["a", "b", "c"]);
+    expect(ids(api.selectedNodes)).toEqual(["a"]); // store unchanged until prop flows back
+  });
+
+  test("applying the prop updates the store without firing the callbacks", () => {
+    const onSelect = jest.fn();
+    const onSelectionChange = jest.fn();
+    const api = setupApi({ data: rowData, selectedIds: ["a"], onSelect, onSelectionChange });
+    api.applyControlledSelection(["a", "b"]);
+    expect(ids(api.selectedNodes).sort()).toEqual(["a", "b"]);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onSelectionChange).not.toHaveBeenCalled();
+  });
+
+  test("read-only: an interaction with no onSelectionChange leaves the store untouched", () => {
+    const api = setupApi({ data: rowData, selectedIds: ["a"] });
+    api.applyControlledSelection(["a"]);
+    api.select("b");
+    expect(ids(api.selectedNodes)).toEqual(["a"]);
+  });
+
+  test("deselectAll and selectAll emit the intended set without mutating the store", () => {
+    const onSelectionChange = jest.fn();
+    const api = setupApi({ data: rowData, selectedIds: ["a", "b"], onSelectionChange });
+    api.applyControlledSelection(["a", "b"]);
+    onSelectionChange.mockClear();
+
+    api.deselectAll();
+    expect(onSelectionChange).toHaveBeenLastCalledWith([]);
+    expect(ids(api.selectedNodes).sort()).toEqual(["a", "b"]);
+
+    api.selectAll();
+    expect(ids(onSelectionChange.mock.calls.at(-1)![0]).sort()).toEqual(["a", "b", "c"]);
+    expect(ids(api.selectedNodes).sort()).toEqual(["a", "b"]);
   });
 });

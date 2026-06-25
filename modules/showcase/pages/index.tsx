@@ -75,6 +75,19 @@ const Home: NextPage = () => {
               <Link href="/drag-out">View Demo</Link>
             </div>
           </Link>
+
+          <Link href="/controlled-selection" legacyBehavior>
+            <div className={styles.demoCard}>
+              <div className={`${styles.demoCardImage} cities`}></div>
+              <b>Controlled Component</b>
+              <h2>Controlled Selection</h2>
+              <p>
+                In this demo, the parent fully owns the selection via the selectedIds prop and
+                onSelectionChange handler, just like a controlled input.
+              </p>
+              <Link href="/controlled-selection">View Demo</Link>
+            </div>
+          </Link>
         </div>
       </main>
     </div>
